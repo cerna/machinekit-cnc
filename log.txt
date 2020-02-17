@@ -1,0 +1,11 @@
+++ exec docker run --rm -e DEB_BUILD_OPTIONS=parallel=8 -e DH_VERBOSE= -e DEBIAN_SUITE= -e MAJOR_MINOR_VERSION= -e PKGSOURCE= -e REPO_URL= -e TRAVIS_BRANCH= -e TRAVIS_PULL_REQUEST= -e TRAVIS_REPO= -e TRAVIS_REPO_SLUG= -u 1000:1000 -e USER=mars -v /home/mars:/home/mars -e HOME=/home/mars -v /home/mars/Documents/Programming/machinekit:/home/mars/Documents/Programming/machinekit -w /home/mars/Documents/Programming/machinekit/cmk-cnc -e TAG=amd64_8 -h arceye-mk-cross-builder-amd64_8 arceye/mk-cross-builder:amd64_8 bash -xec '
+            # configure source package
+            debian/configure -prx;
+
+            # update Changelog and build source package
+            /bin/build_source_package false
+
+            # build binary packages
+            dpkg-buildpackage -uc -us -b -j8
+            '
+bash: exec: docker: not found
