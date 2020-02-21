@@ -89,7 +89,7 @@ TARGETS += ../bin/linuxcnclcd
 	../lib/liblinuxcnchal.so.0 \
 	../lib/librtapi_math.so.0
 	$(ECHO) Linking $(notdir $@)
-	$(Q)$(CXX) $(LDFLAGS) -o $@ $^ 
+	$(Q)$(CXX) $(LDFLAGS) -o $@ $^ -llinuxcnculapi
 TARGETS += ../bin/halui
 
 ifeq "$(HAVE_NCURSES)" "yes"

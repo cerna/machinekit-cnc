@@ -66,24 +66,7 @@ ECHO=@true
 VECHO=true
 endif
 
-ifeq ($(threads),)
-# if $(threads) wasn't passed in on the command line, rerun make for
-# each flavor/(optional)kernel-source combo
-BUILD_ALL_FLAVORS = yes
-BUILD_THREAD_MODULES = no
-else
-# $(threads) was passed in; build modules for this flavor and (if
-# applicable) kernel-source
-BUILD_ALL_FLAVORS = no
-BUILD_THREAD_MODULES = yes
-endif # $(threads)
-
-# if KERNELRELEASE is non-empty, we're in kbuild
-ifeq ($(KERNELRELEASE),)
 BUILD_KBUILD = no
-else
-BUILD_KBUILD = yes
-endif
 
 # extract the version from the kernel source version.h
 ifneq ($(KERNELDIR),)
@@ -103,61 +86,9 @@ export PYTHONPATH
 else
 include $(BASEPWD)/Makefile.inc
 endif
-ifeq ($(BUILD_THREAD_FLAVORS),)
-$(error Makefile.inc must specify 'BUILD_THREAD_FLAVORS' and other variables)
-endif
-# prevent typos
-ifeq "$(filter $(threads),$(BUILD_THREAD_FLAVORS))" ""
-$(error "$(threads)" is not a valid RTOS flavor; please pick one of:\
-    $(BUILD_THREAD_FLAVORS))
-endif
 
 # default target:  put before everything else
 default:
-
-ifeq ($(BUILD_ALL_FLAVORS),yes)
-# Top-level modules target
-#
-# Re-run 'make modules', once for each configured userland threads
-# flavor, and once for each detected kernel for each configured kernel
-# threads flavor.  Set 'threads' and where applicable 'KERNELDIR'.
-#
-# Following tradition, this incarnation of the modules recipe is
-# placed far away from all others.
-FLAVORUP = $(shell echo $(1) | tr a-z- A-Z_)
-FLAVORVAR = $($(call FLAVORUP,$(1))_THREADS_$(2))
-modules:  userspace
-	@$(foreach f,$(BUILD_THREAD_FLAVORS),\
-	    echo "Making modules for flavor $(f)"; \
-	    $(if $(findstring kbuild,$(call FLAVORVAR,$(f),BUILD_SYS)),\
-		$(foreach kd,$(call FLAVORVAR,$(f),KERNEL_DIRS),\
-		    echo "    kernel source dir $(kd)"; \
-		    $(MAKE) modules threads=$(f) KERNELDIR=$(kd);\
-		    ),\
-	        $(MAKE) modules threads=$(f);\
-	    )\
-	)
-
-#ifeq ($(HAVE_KERNEL_THREADS),yes)
-#    @test -f ../libexec/linuxcnc_module_helper -a \
-#	\( `stat -c %u ../libexec/linuxcnc_module_helper` -ne 0 -o \
-#	    ! -u ../libexec/linuxcnc_module_helper \) \
-#        && need_setuid=1; 
-#endif
-#
-#ifeq ($(RUN_IN_PLACE)+$(BUILD_DRIVERS),yes+yes)
-#	for f in $(filter-out %-kernel,$(BUILD_THREAD_FLAVORS)); do \
-#	    test -f ../libexec/rtapi_app_$$f -a \
-#		    \( 0`stat -c %u ../libexec/rtapi_app_$$f 2>/dev/null` \
-#			-ne 0 -o ! -u ../libexec/rtapi_app_$$f \) \
-#		&& need_setuid=1; \
-#	done; \
-#	test "$$need_setuid" = 1 && \
-#	    $(VECHO) -n "You now need to run 'sudo make setuid' " && \
-#	    $(VECHO) "in order to run in place." || true
-#endif
-
-endif # BUILD_ALL_FLAVORS
 
 
 OBJDIR := objects/$(RTDIR_EXT)
@@ -175,9 +106,7 @@ cc-option = $(shell \
 	echo "$(2)"; \
     fi ;)
 
-ifeq ($(KERNELRELEASE),)
-# When KERNELRELEASE is not defined, this is the userspace build.
-# The "modules" target is the gateway to the kernel module build.
+
 default: configs userspace modules
 
 # Print 'entering' all the time
@@ -227,9 +156,7 @@ SUBDIRS := \
 	\
 	po \
 
-ifeq ($(HAVE_KERNEL_THREADS),yes)
-SUBDIRS += module_helper
-endif
+
 
 
 # moved to src/rtapi/Submakefile
@@ -315,9 +242,6 @@ endif
 # see configure.ac GIT_CONFIG_SHA for the configure-time string
 GIT_BUILD_SHA := $(shell ../scripts/get-git-sha)
 
-# complain if SHA's dont match
-$(info $(shell  ../scripts/check-build-vs-configure-sha))
-
 # allow RIP build of machinekit-cnc by copying req libs and headers from existing machinekit-hal build
 #
 ifeq ($(USE_MKHAL),yes)
@@ -381,7 +305,7 @@ $(sort $(CUSEROBJS_BUILD)) : objects/%_build.o: %.c
 		$< -o $@
 
 $(sort $(CXXUSEROBJS)) : objects/%.o: %.cc
-	$(ECHO) Compiling $<
+	$(ECHO) Compiling ++ $<
 	@mkdir -p $(dir $@)
 	@rm -f $@
 	$(Q)$(CXX) -c $(CPPFLAGS) $(CXXFLAGS) $(EXTRAFLAGS) \
@@ -582,56 +506,11 @@ userspace: python
 clean: pythonclean cscopeclean
 endif
 
-# This is the gateway into the crazy world of "kbuild", the linux 2.6 system
-# for building kernel modules.	Other kernel module build styles need to be
-# accomodated here.
-#
-# (don't build when 'BUILD_ALL_FLAVORS' or 'BUILD_THREADS_MODULES' are set;
-# these are intermediate make runs)
-ifeq ($(BUILD_SYS)+$(BUILD_THREAD_MODULES),kbuild+yes)
-modules:  $(OBJDIR)/.separate-kbuild-artifacts-hack.stamp
-	mkdir -p $(RTLIBDIR)
-	$(PYTHON) modsilent.py $(MAKE) \
-	    -C $(KERNELDIR) \
-	    SUBDIRS=$(BASEPWD)/$(OBJDIR) \
-	    CC="$(CC)" KBUILD_VERBOSE=$(BUILD_VERBOSE) modules
-	cp $(OBJDIR)/Module.symvers $(OBJDIR)/*$(MODULE_EXT) $(RTLIBDIR)
-endif  # BUILD_SYS == 'kbuild'
-
-# It looks almost impossible to coerce kbuild into putting build
-# artifacts outside the source tree.  The universal build needs to
-# keep these artifacts separate for each kthread flavor.  To solve
-# this, create a link tree in objects/rtapi-<flavor> with everything
-# needed to build kernel modules.
-#
-# Then in the above 'modules:' target, cd to the link tree and call
-# kbuild.
-MODULE_SOURCE_DIRS = emc libnml workaround
-MODULE_SOURCES = Makefile* config* modsilent.py
-$(OBJDIR)/.separate-kbuild-artifacts-hack.stamp:
-	mkdir -p $(OBJDIR)
-	# hard-link contents of $(MODULE_SOURCE_DIRS) to # $(OBJDIR)
-	# never follow symbolic links
-	cp -rlfd $(MODULE_SOURCE_DIRS) $(OBJDIR)
-	cp -lf $(MODULE_SOURCES) $(OBJDIR)
-ifeq ($(BUILD_SYS),kbuild)
-	# kbuild needs a full copy of this tree with
-	cp -rlf halcomp-srcs $(OBJDIR)
-endif
-	ln -sf $(BASEPWD)/../bin $(OBJDIR)/..
-	ln -sf $(BASEPWD)/../scripts $(OBJDIR)/..
-	touch $@
-
 # These rules clean things up.	'modclean' cleans files generated by 'modules'
 # (except that it doesn't remove the modules that were copied to rtlib)
 # 'clean' cleans everything but dependency files, and 'depclean' cleans them
 # too.
 modclean:
-	find -name '.*.cmd' -or -name '*.ko' -or -name '*.mod.c' -or -name '*.mod.o' | xargs rm -f
-	-rm -rf .tmp_versions
-	-rm -rf halcomp-srcs
-	find . -name .tmp_versions |xargs rm -rf
-	-rm -f $(RTLIBDIR)/*.ko
 	-rm -f $(RTLIBDIR)/*.so
 
 depclean:
@@ -645,9 +524,6 @@ clean: depclean modclean docclean
 	find . -name '*.o' |xargs rm -f
 	-rm -rf objects
 	-rm -f $(TARGETS)
-	for flav in $(BUILD_THREAD_FLAVORS); do \
-	    rm -rf ../lib/$$flav; \
-	done
 	-rm -rf ../rtlib ../libexec
 	rm -f ../etc/linuxcnc/rtapi.ini
 	-rm -f $(COPY_CONFIGS)
@@ -677,7 +553,7 @@ clean: depclean modclean docclean
 #else
 setuid:
 	@echo "'make setuid' is not needed if hardware drivers are not used"
-endif
+#endif
 
 # These rules allows a header file from this directory to be installed into
 # ../include.  A pair of rules like these will exist in the Submakefile
@@ -870,24 +746,12 @@ endif
 
 
 	# RTAPI modules:  install userland flavor .so modules into
-	# e.g. /usr/lib/linuxcnc/modules and kthread flavor .ko
-	# modules for each kver into e.g. /lib/modules/<kver>/linuxcnc
-	for flavor in $(BUILD_THREAD_FLAVORS); do \
-	    if test $${flavor%-kernel} = $${flavor}; then \
-		echo Installing modules for userland flavor $$flavor; \
-		$(DIR) $(DESTDIR)$(EMC2_RTLIB_BASE_DIR)/$$flavor; \
-		$(FILE) ../rtlib/$$flavor/* \
-		    $(DESTDIR)$(EMC2_RTLIB_BASE_DIR)/$$flavor; \
-	    else \
-		echo Installing modules for kthreads flavor $$flavor; \
-		for srcdir in ../rtlib/$$flavor/*; do \
-		    kver=`basename $$srcdir`; \
-		    echo Installing modules for flavor $$flavor, kver $$kver; \
-		    $(DIR) $(DESTDIR)/lib/modules/$$kver/linuxcnc; \
-		    $(FILE) $$srcdir/* $(DESTDIR)/lib/modules/$$kver/linuxcnc; \
-		done; \
-	    fi; \
-	done
+	# e.g. /usr/lib/linuxcnc/modules
+
+	echo Installing modules
+	$(DIR) $(DESTDIR)$(EMC2_RTLIB_BASE_DIR)/modules
+	$(FILE) ../rtlib/modules/* \
+		    $(DESTDIR)$(EMC2_RTLIB_BASE_DIR)/modules
 endif # ! RUN_IN_PLACE
 
 CONF=../configs
@@ -943,18 +807,6 @@ $(call CONFILES,core_sim.hal): %/core_sim.hal: ../configs/common/core_sim.hal
 $(call CONFILES,core_sim9.hal): %/core_sim9.hal: ../configs/common/core_sim9.hal
 	$(Q)-cp $< $@
 
-#endif # userspace
-
-ifneq ($(KERNELRELEASE),)
-# KERNELRELEASE is non-empty, therefore we are building modules using
-# the "kbuild" system.
-#
-INCLUDE_PREFIX = $(BASEPWD)
-
-endif # KERNELRELEASE non-empty
-
-# $(BASEPWD) is used here, instead of relative paths, because that's
-# what kbuild seems to require
 
 EXTRA_CFLAGS = $(RTFLAGS) \
         $(ARCH_CFLAGS) \
@@ -976,9 +828,7 @@ EXTRA_CFLAGS = $(RTFLAGS) \
 	$(call cc-option,-mieee-fp) \
 	$(KERNEL_MATH_CFLAGS)
 
-ifeq ($(BUILD_SYS),kbuild)
-EXTRA_CFLAGS += $(call cc-option,-Wframe-larger-than=2560) $(call cc-option,-Wno-declaration-after-statement)
-endif
+
 
 
 
@@ -1203,7 +1053,7 @@ $(RTLIBDIR)/%.so:
 
 $(sort $(RTDEPS)): $(DEPDIR)/%.d: %.c
 	@mkdir -p $(dir $@)
-	$(ECHO) Depending realtime $(threads) $<
+	$(ECHO) Depending realtime $<
 	$(Q)$(call DEP,$(CC),$@ \
 		$(patsubst depends/%.d,objects/%.o,$@),$@,$(OPT) \
 		$(DEBUG) $(CPPFLAGS) $(EXTRA_CFLAGS) $<)

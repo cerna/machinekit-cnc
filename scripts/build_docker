@@ -81,7 +81,6 @@ BIND_SOURCE_DIR="$(readlink -f $PWD/..)"
 
 # Directory containing this script
 SCRIPT_DIR="$(dirname $0)"
-SCRIPT_DIR=scripts
 
 # Make TAG accessible to called programs
 export TAG
@@ -120,7 +119,6 @@ case $CMD in
             debian/configure ${PKG_CONFIGURE_ARGS};
 
             # update Changelog and build source package
-			echo $SCRIPT_DIR
             $SCRIPT_DIR/build_source_package $BUILD_SOURCE
 
             # build binary packages
