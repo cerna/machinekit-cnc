@@ -12,8 +12,8 @@ jobs:
   buildDockerContainers:
     runs-on: "ubuntu-latest"
     env:
-      DOCKER_ID: 'cmcquinn'
-      GITHUB_ID: 'cmcquinn'
+      DOCKER_ID: 'cerna'
+      GITHUB_ID: 'cerna'
       GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
       IMAGE_NAME: 'mk-cnc-cross-builder'
       PACKAGE_DIR: 'mkhal'
